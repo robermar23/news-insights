@@ -1,0 +1,57 @@
+[tool.poetry]
+name = "news-insights"
+version = "0.1.0"
+description = "Analyze news articles for tone, intent, sentiment, and more. Continuous training-ready."
+authors = []
+
+[tool.poetry.dependencies]
+python = "^3.12"
+typer = "^0.12.3"
+pydantic = "^2.8.2"
+pydantic-settings = "^2.3.3"
+requests = "^2.32.3"
+feedparser = "^6.0.10"
+trafilatura = "^1.7.0"
+beautifulsoup4 = "^4.12.3"
+SQLAlchemy = "^2.0.32"
+tenacity = "^8.5.0"
+dateparser = "^1.2.0"
+rich = "^13.7.1"
+transformers = "^4.43.3"
+torch = ">=2.2,<3.0"
+scikit-learn = "^1.5.1"
+pandas = "^2.2.2"
+pyarrow = "^17.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.8.0"
+black = "^24.8.0"
+ruff = "^0.5.7"
+mypy = "^1.10.0"
+pytest = "^8.3.2"
+pytest-cov = "^5.0.0"
+
+[tool.poetry.scripts]
+news-insights = "news_insights.cli:main"
+
+[build-system]
+requires = ["poetry-core>=1.9"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+strict = false
+
