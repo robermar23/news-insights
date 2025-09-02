@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from transformers import pipeline, AutoTokenizer
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+import torch
 
 from ..config import get_settings, resolve_zero_shot_labels
 from ..db.models import Article, Prediction
@@ -38,12 +39,20 @@ class Analyzer:
     tokenizer_emo: Any = field(init=False, default=None)
     tokenizer_zs: Any = field(init=False, default=None)
 
+    # GPU support
+    use_gpu: bool = field(init=False)
+
     def __post_init__(self) -> None:
+        logger.info("Checking for GPU availability...")
+        self.use_gpu = torch.cuda.is_available()
+        device = 0 if self.use_gpu else -1
+        logger.info(f"Using {'GPU' if self.use_gpu else 'CPU'} for inference.")
+
         logger.info("Loading transformers pipelines (this may take a while on first run)...")
         # mypy: transformers pipeline typing is not precise; ignore overload resolution
-        self.sentiment = pipeline("sentiment-analysis", model=self.sentiment_model)  # type: ignore[call-overload]
-        self.emotion = pipeline("text-classification", model=self.emotion_model, top_k=None)  # type: ignore[call-overload]
-        self.zeroshot = pipeline("zero-shot-classification", model=self.zeroshot_model)  # type: ignore[call-overload]
+        self.sentiment = pipeline("sentiment-analysis", model=self.sentiment_model, device=device)  # type: ignore[call-overload]
+        self.emotion = pipeline("text-classification", model=self.emotion_model, device=device, top_k=None)  # type: ignore[call-overload]
+        self.zeroshot = pipeline("zero-shot-classification", model=self.zeroshot_model, device=device)  # type: ignore[call-overload]
 
         if self.enable_chunking:
             # Initialize fast tokenizers for token-based chunking
@@ -69,10 +78,11 @@ class Analyzer:
         chunk_overlap: Optional[int] = None,
         long_doc_agg: Optional[str] = None,
         max_chunks_per_doc: Optional[int] = None,
+        use_gpu: Optional[bool] = None,
     ) -> "Analyzer":
         s = get_settings()
         labels = candidate_labels or resolve_zero_shot_labels(s.zero_shot_preset)
-        return cls(
+        analyzer = cls(
             s.hf_model_sentiment,
             s.hf_model_emotion,
             s.hf_model_zeroshot,
@@ -83,6 +93,9 @@ class Analyzer:
             (long_doc_agg or s.long_doc_agg).lower(),
             max_chunks_per_doc if max_chunks_per_doc is not None else s.max_chunks_per_doc,
         )
+        if use_gpu is not None:
+            analyzer.use_gpu = use_gpu
+        return analyzer
 
     def analyze_text(self, text: str) -> Dict[str, Dict[str, float]]:
         if self.enable_chunking:
@@ -114,6 +127,8 @@ class Analyzer:
         }
 
     def predict_and_store(self, session: Session, article: Article) -> None:
+        logger.info("Predicting article %d...", article.url)
+        
         results = self.analyze_text(article.content or article.title or "")
 
         # Persist predictions
@@ -294,6 +309,8 @@ def predict_pending(
     chunk_overlap: Optional[int] = None,
     agg: Optional[str] = None,
     max_chunks: Optional[int] = None,
+    use_gpu: Optional[bool] = None,
+    batch_size: int = 10,
 ) -> int:
     labels = resolve_zero_shot_labels(preset=preset, labels=candidate_labels)
     analyzer = Analyzer.from_settings(
@@ -303,6 +320,7 @@ def predict_pending(
         chunk_overlap=chunk_overlap,
         long_doc_agg=(agg.lower() if isinstance(agg, str) else None),
         max_chunks_per_doc=max_chunks,
+        use_gpu=use_gpu,
     )
 
     # Find articles without any predictions
@@ -318,7 +336,14 @@ def predict_pending(
     for art in articles:
         analyzer.predict_and_store(session, art)
         cnt += 1
+        if cnt % batch_size == 0:
+            session.commit()
+            logger.info("Committed batch of %d articles", batch_size)
         if limit and cnt >= limit:
             break
+
+    # Final commit for any remaining articles
+    session.commit()
+    logger.info("Final commit completed for remaining articles.")
     return cnt
 

@@ -97,6 +97,16 @@ def predict(
         "--max-chunks",
         help="Optional cap on number of chunks per document",
     ),
+    use_gpu: Optional[bool] = typer.Option(
+        None,
+        "--use-gpu/--no-use-gpu",
+        help="Enable or disable GPU usage for inference",
+    ),
+    batch_size: int = typer.Option(
+        10,
+        "--batch-size",
+        help="Number of articles to process before saving predictions to the database",
+    ),
 ) -> None:
     s = get_settings()
     logger = setup_logging(s.log_level)
@@ -124,6 +134,8 @@ def predict(
             chunk_overlap=overlap,
             agg=(agg.lower() if agg else None),
             max_chunks=max_chunks,
+            use_gpu=use_gpu,
+            batch_size=batch_size,
         )
     logger.info("Stored predictions for %d article(s)", n)
 
